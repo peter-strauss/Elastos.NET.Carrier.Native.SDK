@@ -33,10 +33,13 @@
 #include "flatcc/support/hexdump.h"
 #include "ela_carrier.h"
 
+#define CPV1 ((uint16_t)1)
+
 #pragma pack(push, 1)
 
 struct ElaCP {
-    uint8_t type;
+    uint16_t ver;
+    uint16_t type;
     const char *ext;
 };
 
@@ -115,7 +118,7 @@ struct elacp_table_t {
     } u;
 };
 
-ElaCP *elacp_create(uint8_t type, const char *ext_name)
+ElaCP *elacp_create(uint16_t ver, uint16_t type, const char *ext_name)
 {
     ElaCP *cp;
     size_t len;
@@ -145,10 +148,16 @@ ElaCP *elacp_create(uint8_t type, const char *ext_name)
     if (!cp)
         return NULL;
 
+    cp->ver  = ver;
     cp->type = type;
     cp->ext  = ext_name;
 
     return cp;
+}
+
+ElaCP *elacp_create_v1(uint16_t type, const char *ext_name)
+{
+    return elacp_create(CPV1, type, ext_name);
 }
 
 void elacp_free(ElaCP *cp)
@@ -157,17 +166,21 @@ void elacp_free(ElaCP *cp)
         free(cp);
 }
 
-int elacp_get_type(ElaCP *cp)
+uint16_t elacp_get_version(ElaCP *cp)
 {
     assert(cp);
+    return cp->ver;
+}
 
+uint16_t elacp_get_type(ElaCP *cp)
+{
+    assert(cp);
     return cp->type;
 }
 
 const char *elacp_get_extension(ElaCP *cp)
 {
     assert(cp);
-
     return cp->ext;
 }
 
@@ -821,6 +834,7 @@ uint8_t *elacp_encode(ElaCP *cp, size_t *encoded_len)
     }
 
     elacp_packet_start_as_root(&builder);
+    elacp_packet_version_add(&builder, cp->ver);
     elacp_packet_type_add(&builder, cp->type);
     elacp_packet_body_add(&builder, body);
     if (!elacp_packet_end_as_root(&builder)) {
@@ -841,11 +855,18 @@ ElaCP *elacp_decode(const uint8_t *data, size_t len)
     struct elacp_table_t  tbl;
     elacp_packet_table_t packet;
     flatbuffers_uint8_vec_t vec;
-    uint8_t type;
+    uint16_t ver;
+    uint16_t type;
 
     packet = elacp_packet_as_root(data);
     if (!packet)
         return NULL;
+
+    ver = elacp_packet_version(packet);
+    if (ver != CPV1) {
+        //TODO: clean resource for 'packet'; (how ?)
+        return NULL;
+    }
 
     type = elacp_packet_type(packet);
     switch(type) {
@@ -860,7 +881,7 @@ ElaCP *elacp_decode(const uint8_t *data, size_t len)
         return NULL;
     }
 
-    cp = elacp_create(type, NULL);
+    cp = elacp_create_v1(type, NULL);
     if (!cp) {
         //TODO: clean resource for 'packet'; (how ?)
         return NULL;

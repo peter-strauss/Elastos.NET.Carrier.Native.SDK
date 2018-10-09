@@ -23,38 +23,38 @@
 namespace elacp;
 
 table userinfo {
-    avatar : bool = false;
-    name   : string;
-    descr  : string;
-    phone  : string;
-    gender : string;
-    email  : string;
-    region : string;
+    avatar  : bool = false;
+    name    : string;
+    descr   : string;
+    phone   : string;
+    gender  : string;
+    email   : string;
+    region  : string;
 }
 
 table friendreq {
-    name   : string;
-    descr  : string;
-    hello  : string;
+    name    : string;
+    descr   : string;
+    hello   : string;
 }
 
 table friendmsg {
-    ext    : string;
-    msg    : [ubyte];
+    ext     : string;
+    msg     : [uint8];
 }
 
 table invitereq {
-    ext    : string;
-    tid    : long;
-    data   : [uint8];
+    ext     : string;
+    tid     : long;
+    data    : [uint8];
 }
 
 table invitersp {
-    ext    : string;
-    tid    : long;
-    status : int;
-    reason : string;
-    data   : [uint8];
+    ext     : string;
+    tid     : long;
+    status  : int;
+    reason  : string;
+    data    : [uint8];
 }
 
 union anybody {
@@ -65,11 +65,10 @@ union anybody {
     invitersp
 }
 
-table packet
-{
-    type   : uint8;
-    body   : anybody;
+table packet {
+    version : ushort;
+    type    : ushort;
+    body    : anybody;
 }
 
 root_type packet;
-

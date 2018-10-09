@@ -214,7 +214,7 @@ static void fill_empty_user_desc(ElaCarrier *w)
 
     assert(w);
 
-    cp = elacp_create(ELACP_TYPE_USERINFO, NULL);
+    cp = elacp_create_v1(ELACP_TYPE_USERINFO, NULL);
     if (!cp) {
         vlogE("Carrier: Out of memory!!!");
         return;
@@ -1894,7 +1894,7 @@ int ela_set_self_info(ElaCarrier *w, const ElaUserInfo *info)
         return -1;
     }
 
-    cp = elacp_create(ELACP_TYPE_USERINFO, NULL);
+    cp = elacp_create_v1(ELACP_TYPE_USERINFO, NULL);
     if (!cp) {
         ela_set_error(ELA_GENERAL_ERROR(ELAERR_OUT_OF_MEMORY));
         return -1;
@@ -2177,7 +2177,7 @@ int ela_add_friend(ElaCarrier *w, const char *address, const char *hello)
         return -1;
     }
 
-    cp = elacp_create(ELACP_TYPE_FRIEND_REQUEST, NULL);
+    cp = elacp_create_v1(ELACP_TYPE_FRIEND_REQUEST, NULL);
     if (!cp) {
         ela_set_error(ELA_GENERAL_ERROR(ELAERR_OUT_OF_MEMORY));
         deref(fi);
@@ -2400,7 +2400,7 @@ int ela_send_friend_message(ElaCarrier *w, const char *to, const void *msg,
         return -1;
     }
 
-    cp = elacp_create(ELACP_TYPE_MESSAGE, ext_name);
+    cp = elacp_create_v1(ELACP_TYPE_MESSAGE, ext_name);
     if (!cp) {
         ela_set_error(ELA_GENERAL_ERROR(ELAERR_OUT_OF_MEMORY));
         return -1;
@@ -2488,7 +2488,7 @@ int ela_invite_friend(ElaCarrier *w, const char *to,
         return -1;
     }
 
-    cp = elacp_create(ELACP_TYPE_INVITE_REQUEST, ext_name);
+    cp = elacp_create_v1(ELACP_TYPE_INVITE_REQUEST, ext_name);
     if (!cp) {
         ela_set_error(ELA_GENERAL_ERROR(ELAERR_OUT_OF_MEMORY));
         return -1;
@@ -2586,7 +2586,7 @@ int ela_reply_friend_invite(ElaCarrier *w, const char *to,
         return -1;
     }
 
-    cp = elacp_create(ELACP_TYPE_INVITE_RESPONSE, ext_name);
+    cp = elacp_create_v1(ELACP_TYPE_INVITE_RESPONSE, ext_name);
     if (!cp) {
         ela_set_error(ELA_GENERAL_ERROR(ELAERR_OUT_OF_MEMORY));
         return -1;

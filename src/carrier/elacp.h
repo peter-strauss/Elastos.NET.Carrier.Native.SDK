@@ -43,11 +43,15 @@ typedef struct ElaCP ElaCP;
 
 #define ELACP_TYPE_MAX                        95
 
-ElaCP *elacp_create(uint8_t type, const char *ext_name);
+ElaCP *elacp_create(uint16_t ver, uint16_t type, const char *ext_name);
+
+ElaCP *elacp_create_v1(uint16_t type, const char *ext_name);
 
 void elacp_free(ElaCP *cp);
 
-int elacp_get_type(ElaCP *cp);
+uint16_t elacp_get_version(ElaCP *cp);
+
+uint16_t elacp_get_type(ElaCP *cp);
 
 const char *elacp_get_extension(ElaCP *cp);
 
