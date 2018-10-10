@@ -100,7 +100,7 @@ struct ElaCarrier {
     int quit;
 };
 
-typedef void (*friend_invite_callback)(ElaCarrier *, const char *,
+typedef void (*friend_invite_callback)(ElaCarrier *, const char *, const char*,
                                        const char *, size_t, void *);
 typedef struct SessionExtension {
     ElaCarrier              *carrier;

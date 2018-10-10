@@ -595,6 +595,8 @@ typedef struct ElaCallbacks {
      * @param
      *      from        [in] The user id from who send the invite request.
      * @param
+     *      bundle      [in] The bundle attached to this invite request.
+     * @param
      *      data        [in] The application defined data send from friend.
      * @param
      *      len         [in] The data length in bytes.
@@ -602,6 +604,7 @@ typedef struct ElaCallbacks {
      *      context     [in] The application defined context data.
      */
     void (*friend_invite)(ElaCarrier *carrier, const char *from,
+                          const char *bundle,
                           const void *data, size_t len, void *context);
 
 } ElaCallbacks;
@@ -1129,6 +1132,8 @@ int ela_send_friend_message(ElaCarrier *carrier, const char *to,
  * @param
  *      from        [in] The target user id.
  * @param
+ *      bundle      [in] The bundle attached to this invite reply.
+ * @param
  *      status      [in] The status code of the response.
  *                       0 is success, otherwise is error.
  * @param
@@ -1142,6 +1147,7 @@ int ela_send_friend_message(ElaCarrier *carrier, const char *to,
  */
 typedef void ElaFriendInviteResponseCallback(ElaCarrier *carrier,
                                              const char *from,
+                                             const char *bundle,
                                              int status, const char *reason,
                                              const void *data, size_t len,
                                              void *context);
@@ -1158,6 +1164,8 @@ typedef void ElaFriendInviteResponseCallback(ElaCarrier *carrier,
  * @param
  *      to          [in] The target userid.
  * @param
+ *      bundle      [in] The bundle attached to this invitation.
+ * @param
  *      data        [in] The application defined data send to target user.
  * @param
  *      len         [in] The data length in bytes.
@@ -1173,7 +1181,7 @@ typedef void ElaFriendInviteResponseCallback(ElaCarrier *carrier,
  *      retrieved by calling ela_get_error().
  */
 CARRIER_API
-int ela_invite_friend(ElaCarrier *carrier, const char *to,
+int ela_invite_friend(ElaCarrier *carrier, const char *to, const char *bundle,
                       const void *data, size_t len,
                       ElaFriendInviteResponseCallback *callback,
                       void *context);
@@ -1188,6 +1196,8 @@ int ela_invite_friend(ElaCarrier *carrier, const char *to,
  *      carrier     [in] A handle to the Carrier node instance.
  * @param
  *      to          [in] The userid who send invite request.
+ * @param
+ *      bundle      [in] The bundle attached to this invitation reply.
  * @param
  *      status      [in] The status code of the response.
  *                       0 is success, otherwise is error.
@@ -1208,6 +1218,7 @@ int ela_invite_friend(ElaCarrier *carrier, const char *to,
  */
 CARRIER_API
 int ela_reply_friend_invite(ElaCarrier *carrier, const char *to,
+                            const char *bundle,
                             int status, const char *reason,
                             const void *data, size_t len);
 /******************************************************************************

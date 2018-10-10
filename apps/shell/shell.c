@@ -826,6 +826,7 @@ static void send_message(ElaCarrier *w, int argc, char *argv[])
 }
 
 static void invite_response_callback(ElaCarrier *w, const char *friendid,
+                                     const char *bundle,
                                      int status, const char *reason,
                                      const void *data, size_t len, void *context)
 {
@@ -846,7 +847,7 @@ static void invite(ElaCarrier *w, int argc, char *argv[])
         return;
     }
 
-    rc = ela_invite_friend(w, argv[1], argv[2], strlen(argv[2]),
+    rc = ela_invite_friend(w, argv[1], NULL, argv[2], strlen(argv[2]),
                                invite_response_callback, NULL);
     if (rc == 0)
         output("Send invite request success.\n");
@@ -878,7 +879,7 @@ static void reply_invite(ElaCarrier *w, int argc, char *argv[])
         return;
     }
 
-    rc = ela_reply_friend_invite(w, argv[1], status, reason, msg, msg_len);
+    rc = ela_reply_friend_invite(w, argv[1], NULL, status, reason, msg, msg_len);
     if (rc == 0)
         output("Send invite reply to inviter success.\n");
     else
@@ -1856,6 +1857,7 @@ static void message_callback(ElaCarrier *w, const char *from,
 }
 
 static void invite_request_callback(ElaCarrier *w, const char *from,
+                                    const char *bundle,
                                     const void *data, size_t len, void *context)
 {
     output("Invite request from[%s] with data: %.*s\n", from,

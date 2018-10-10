@@ -70,6 +70,7 @@ struct ElaCPFriendMsg {
 struct ElaCPInviteReq {
     ElaCP header;
     int64_t tid;
+    const char *bundle;
     size_t len;
     const uint8_t *data;
 };
@@ -77,6 +78,7 @@ struct ElaCPInviteReq {
 struct ElaCPInviteRsp {
     ElaCP header;
     int64_t tid;
+    const char *bundle;
     int status;
     const char *reason;
     size_t len;
@@ -445,6 +447,30 @@ size_t elacp_get_raw_data_length(ElaCP *cp)
     return len;
 }
 
+const char *elacp_get_bundle(ElaCP *cp)
+{
+     struct elacp_packet_t pkt;
+     const char *bundle = NULL;
+
+     assert(cp);
+     pkt.u.cp = cp;
+
+     switch(cp->type) {
+     case ELACP_TYPE_INVITE_REQUEST:
+         bundle = pktireq->bundle;
+         break;
+
+     case ELACP_TYPE_INVITE_RESPONSE:
+         bundle = pktirsp->bundle;
+         break;
+     default:
+         assert(0);
+         break;
+     }
+
+     return bundle;
+ }
+
 const char *elacp_get_reason(ElaCP *cp)
 {
     struct elacp_packet_t pkt;
@@ -689,6 +715,28 @@ void elacp_set_raw_data(ElaCP *cp, const void *data, size_t len)
     }
 }
 
+void elacp_set_bundle(ElaCP *cp, const char *bundle)
+ {
+     struct elacp_packet_t pkt;
+
+     assert(cp);
+     assert(bundle);
+
+     pkt.u.cp = cp;
+
+     switch(cp->type) {
+     case ELACP_TYPE_INVITE_REQUEST:
+         pktireq->bundle = bundle;
+         break;
+     case ELACP_TYPE_INVITE_RESPONSE:
+         pktirsp->bundle = bundle;
+         break;
+     default:
+         assert(0);
+         break;
+     }
+}
+
 void elacp_set_reason(ElaCP *cp, const char *reason)
 {
     struct elacp_packet_t pkt;
@@ -776,6 +824,10 @@ uint8_t *elacp_encode(ElaCP *cp, size_t *encoded_len)
             elacp_friendmsg_ext_add(&builder, str);
         }
         elacp_invitereq_tid_add(&builder, pktireq->tid);
+        if (pktireq->bundle) {
+             str = flatcc_builder_create_string_str(&builder, pktireq->bundle);
+             elacp_invitereq_bundle_add(&builder, str);
+        }
         vec = flatbuffers_uint8_vec_create(&builder, pktireq->data, pktireq->len);
         elacp_invitereq_data_add(&builder, vec);
         ref = elacp_invitereq_end(&builder);
@@ -788,13 +840,15 @@ uint8_t *elacp_encode(ElaCP *cp, size_t *encoded_len)
             elacp_friendmsg_ext_add(&builder, str);
         }
         elacp_invitersp_tid_add(&builder, pktirsp->tid);
+        if (pktirsp->bundle) {
+             str = flatcc_builder_create_string_str(&builder, pktirsp->bundle);
+             elacp_invitersp_bundle_add(&builder, str);
+        }
         elacp_invitersp_status_add(&builder, pktirsp->status);
         if (pktirsp->status) {
             str = flatcc_builder_create_string_str(&builder, pktirsp->reason);
             elacp_invitersp_reason_add(&builder, str);
-        }
-
-        if (pktirsp->data) {
+        } else {
             vec = flatbuffers_uint8_vec_create(&builder, pktirsp->data, pktirsp->len);
             elacp_invitersp_data_add(&builder, vec);
         }
@@ -924,6 +978,8 @@ ElaCP *elacp_decode(const uint8_t *data, size_t len)
     case ELACP_TYPE_INVITE_REQUEST:
         tblireq = elacp_packet_body(packet);
         pktireq->tid = elacp_invitereq_tid(tblireq);
+        if (elacp_invitereq_bundle_is_present(tblireq))
+             pktireq->bundle = elacp_invitereq_bundle(tblireq);
         pktireq->data = vec = elacp_invitereq_data(tblireq);
         pktireq->len = flatbuffers_uint8_vec_len(vec);
         if (elacp_invitereq_ext_is_present(tblireq))
@@ -933,11 +989,12 @@ ElaCP *elacp_decode(const uint8_t *data, size_t len)
     case ELACP_TYPE_INVITE_RESPONSE:
         tblirsp = elacp_packet_body(packet);
         pktirsp->tid = elacp_invitersp_tid(tblirsp);
+        if (elacp_invitersp_bundle_is_present(tblirsp))
+             pktirsp->bundle = elacp_invitersp_bundle(tblirsp);
         pktirsp->status = elacp_invitersp_status(tblirsp);
         if (pktirsp->status)
             pktirsp->reason = elacp_invitersp_reason(tblirsp);
-
-        if (elacp_invitersp_data_is_present(tblirsp)) {
+        else {
             pktirsp->data = vec = elacp_invitersp_data(tblirsp);
             pktirsp->len = flatbuffers_uint8_vec_len(vec);
         }

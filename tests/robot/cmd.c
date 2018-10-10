@@ -370,6 +370,7 @@ static void fremove(TestContext *context, int argc, char *argv[])
 }
 
 static void invite_response_callback(ElaCarrier *w, const char *friendid,
+                                     const char *bundle,
                                      int status, const char *reason,
                                      const void *data, size_t len, void *context)
 {
@@ -392,7 +393,7 @@ static void finvite(TestContext *context, int argc, char *argv[])
 
     CHK_ARGS(argc == 3);
 
-    rc = ela_invite_friend(w, argv[1], argv[2], strlen(argv[2] + 1),
+    rc = ela_invite_friend(w, argv[1], NULL, argv[2], strlen(argv[2] + 1),
                                invite_response_callback, NULL);
     if (rc < 0)
         vlogE("Send invite request to friend %s error (0x%x)",
@@ -426,7 +427,7 @@ static void freplyinvite(TestContext *context, int argc, char *argv[])
         return;
     }
 
-    rc = ela_reply_friend_invite(w, argv[1], status, reason, msg, msg_len);
+    rc = ela_reply_friend_invite(w, argv[1], NULL, status, reason, msg, msg_len);
     if (rc < 0)
         vlogE("Reply invite request from friend %s error (0x%x)",
               argv[1], ela_get_error());

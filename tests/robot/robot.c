@@ -203,6 +203,7 @@ static void friend_message_cb(ElaCarrier *w, const char *from,
 }
 
 static void friend_invite_cb(ElaCarrier *w, const char *from,
+                             const char *bundle,
                              const void *data, size_t len, void *context)
 {
     vlogD("Recevied friend invite from %s", from);
