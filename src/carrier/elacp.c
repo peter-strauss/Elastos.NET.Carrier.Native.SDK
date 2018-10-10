@@ -718,9 +718,7 @@ void elacp_set_raw_data(ElaCP *cp, const void *data, size_t len)
 void elacp_set_bundle(ElaCP *cp, const char *bundle)
  {
      struct elacp_packet_t pkt;
-
      assert(cp);
-     assert(bundle);
 
      pkt.u.cp = cp;
 
