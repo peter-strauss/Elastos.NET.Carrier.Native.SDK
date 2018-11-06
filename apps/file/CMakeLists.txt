@@ -112,9 +112,4 @@ install(TARGETS elafile
     LIBRARY DESTINATION "lib")
 
 install(FILES elafile.conf
-        DESTINATION "etc/carrier"
-        RENAME "elafile.conf")
-
-if(NOT WIN32)
-    install(PROGRAMS elafile.sh DESTINATION "bin")
-endif()
+        DESTINATION "etc/carrier")
