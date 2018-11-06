@@ -50,7 +50,8 @@ if(HAVE_SYS_TIME_H)
 endif()
 
 set(SRC
-    filetransfer.c)
+    filetransfer.c
+    easyfile.c)
 
 set(HEADERS
     ela_filetransfer.h)

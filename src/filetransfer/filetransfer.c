@@ -77,7 +77,7 @@ void sessionreq_callback(ElaCarrier *w, const char *from, const char *bundle,
 
         fti = (ElaFileTransferInfo *)alloca(sizeof(*fti));
         rc = sscanf(bundle, "%*s:%255s:%45s:%llu", fti->filename, fti->fileid,
-                    &fti->size);
+                    _LLUP(&fti->size));
         if (rc != 3) {
             vlogE("Filetransfer: Receiver received invalid filetransfer connection "
                   "request from %s with bundle %s, dropping.", bundle, from);
@@ -218,7 +218,7 @@ void sender_state_changed(ElaFileTransfer *ft, ElaStreamState state)
 
         if (item->state == FileTransferState_standby)
             sprintf(bundle, "%s:%s:%s:%llu", bundle_prefix, item->filename,
-                    item->fileid, item->filesz);
+                    item->fileid, _LLUV(item->filesz));
         else
             strcpy(bundle, bundle_prefix);
 
@@ -253,7 +253,7 @@ void sender_state_changed(ElaFileTransfer *ft, ElaStreamState state)
             return;
 
         sprintf(bundle, "%s:%s:%s:%llu", bundle_prefix, item->filename,
-                item->fileid, item->filesz);
+                item->fileid, _LLUV(item->filesz));
 
         item->channel = ela_stream_open_channel(ft->session, ft->stream, bundle);
         if (item->channel < 0) {
@@ -266,7 +266,7 @@ void sender_state_changed(ElaFileTransfer *ft, ElaStreamState state)
         }
 
         vlogD("Filetransfer: Sender opened filetransfer channel %d to transfer "
-              "[%s:%s:%llu].", item->channel, item->filename, item->fileid,
+              "[%s:%s:%lu].", item->channel, item->filename, item->fileid,
               item->filesz);
         break;
 
@@ -423,7 +423,7 @@ static bool stream_channel_open(ElaSession *ws, int stream, int channel,
     }
 
     rc = sscanf(cookie, "%31s:%255s:%45s:%llu", prefix, fti.filename,
-                fti.fileid, &fti.size);
+                fti.fileid, _LLUP(&fti.size));
     if (rc != 4 || strcmp(prefix, bundle_prefix)) {
         vlogE("Filetransfer: Receiver received channel open event with invalid "
               "cookie  %s on new channel %d, dropping.", cookie, channel);
@@ -432,7 +432,7 @@ static bool stream_channel_open(ElaSession *ws, int stream, int channel,
 
     vlogD("Filetransfer: Receiver received channe open event to transfer file "
           "[%s:%s:%llu] over new channel %s.", fti.filename, fti.fileid,
-          fti.size, channel);
+          _LLUV(fti.size), channel);
 
     item = get_fileinfo_free(ft);
     if (!item) {
@@ -502,8 +502,7 @@ static bool stream_channel_data(ElaSession *ws, int stream, int channel,
     //TODO: make amend for streamming.
     if (ft->sender_receiver == SENDER && len != sizeof(uint64_t)) {
         vlogE("FileTransfer: Sender received invalid pull request data over "
-              "channe %d with datalen:%llu, dropping.",
-              channel, (uint64_t)len);
+              "channe %d with datalen:%z, dropping.", channel, len);
         return false;
     }
 
@@ -523,7 +522,7 @@ static bool stream_channel_data(ElaSession *ws, int stream, int channel,
         }
 
         vlogT("Filetransfer: Sender received pull request data over channel with "
-              "requested offset: %llu.", channel, *(uint64_t *)data);
+              "requested offset: %llu.", channel, *_LLUP(data));
 
         item->state = FileTransferState_transfering;
 
@@ -540,7 +539,7 @@ static bool stream_channel_data(ElaSession *ws, int stream, int channel,
         }
 
         vlogV("Filetranfer: Receiver received filetransfer data over channel %d "
-              "with data length %llu of file: %s.", channel, len, item->fileid);
+              "with data length %z of file: %s.", channel, len, item->fileid);
 
         assert(ft->callbacks.data);
         strcpy(fileid, item->fileid);
@@ -1051,7 +1050,7 @@ int ela_filetransfer_add(ElaFileTransfer *ft,
     item->filesz = fileinfo->size;
 
     sprintf(cookie, "%s:%s:%s:%llu", bundle_prefix, fileinfo->filename, fileid,
-            item->filesz);
+            _LLUV(item->filesz));
 
     item->channel = ela_stream_open_channel(ft->session, ft->stream, cookie);
     if (item->channel < 0) {
@@ -1066,7 +1065,7 @@ int ela_filetransfer_add(ElaFileTransfer *ft,
     item->state = FileTransferState_standby;
     vlogD("Filetransfer: Sender opened channel %d to transfer [%s:%s:%llu] "
           "success.", item->channel, item->fileid, fileinfo->filename,
-          item->filesz);
+          _LLUV(item->filesz));
     return 0;
 }
 
@@ -1122,7 +1121,8 @@ int ela_filetransfer_pull(ElaFileTransfer *ft, const char *fileid,
 
     item->state = FileTransferState_transfering;
     vlogD("Filetransfer: Receiver send pull request to transfer [%s:%llu] over "
-          "channel %d success.", item->fileid, item->filesz, item->channel);
+          "channel %d success.", item->fileid, _LLUV(item->filesz),
+          item->channel);
     return 0;
 }
 

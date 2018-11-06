@@ -54,6 +54,9 @@ extern "C" {
 #define SENDER                          1
 #define RECEIVER                        2
 
+#define _LLUV(val)                      ((unsigned long long)(val))
+#define _LLUP(addr)                     ((unsigned long long *)(addr))
+
 typedef struct FileTransferExt          FileTransferExt;
 typedef struct FileTransferItem         FileTransferItem;
 
