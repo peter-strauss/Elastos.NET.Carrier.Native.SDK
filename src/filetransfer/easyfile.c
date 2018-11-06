@@ -25,10 +25,22 @@
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
-#include <libgen.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <pthread.h>
+
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+#ifdef HAVE_ALLOCA_H
+#include <alloca.h>
+#endif
+#ifdef HAVE_MALLOC_H
+#include <malloc.h>
+#endif
+#ifdef HAVE_LIBGEN_H
+#include <libgen.h>
+#endif
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <posix_helper.h>
@@ -41,8 +53,6 @@
 #include <ela_session.h>
 #include "ela_filetransfer.h"
 #include "easyfile.h"
-
-#define _GNU_SOURCE
 
 static
 void notify_state_changed_cb(ElaFileTransfer *ft, FileTransferConnection state,
@@ -70,7 +80,6 @@ bool notify_file_cb(ElaFileTransfer *ft, const char *fileid,
 {
     EasyFile *file = (EasyFile *)context;
     char fname[ELA_MAX_FILE_NAME_LEN + 1] = {0};
-    char *p;
     int rc;
 
     assert(file);
@@ -98,7 +107,7 @@ static void *sending_file_routine(void *args)
     size_t send_len;
     int rc;
 
-    rc = fseek(file->fp, offset, SEEK_SET);
+    rc = fseek(file->fp, (long)offset, SEEK_SET);
     if (rc < 0) {
         vlogE("File: Seeking file %s to offset %llu error (%d).", file->fileid,
               offset, errno);
@@ -106,7 +115,7 @@ static void *sending_file_routine(void *args)
     }
 
     do {
-        send_len = file->filesz - offset;
+        send_len = (size_t)(file->filesz - offset);
         if (send_len > ELA_MAX_USER_DATA_LEN)
             send_len = ELA_MAX_USER_DATA_LEN;
 
@@ -141,7 +150,6 @@ void notify_pull_cb(ElaFileTransfer *ft, const char *fileid, uint64_t offset,
     EasyFile *file = (EasyFile *)context;
     char filename[ELA_MAX_FILE_NAME_LEN + 1] = {0};
     pthread_t thread;
-    char *p;
     int rc;
 
     assert(file);
@@ -214,7 +222,7 @@ int ela_file_send(ElaCarrier *w, const char *address, const char *filename,
     ElaFileTransferCallbacks cbs;
     struct stat st;
     char path[PATH_MAX] = {0};
-    const char *p;
+    char *p;
     int rc;
 
     if (!w || !address || !*address || !filename || !*filename || !callbacks) {

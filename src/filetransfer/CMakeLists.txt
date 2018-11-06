@@ -19,39 +19,20 @@ if(HAVE_MALLOC_H)
     add_definitions(-DHAVE_MALLOC_H=1)
 endif()
 
-check_include_file(io.h HAVE_IO_H)
-if(HAVE_IO_H)
-    add_definitions(-DHAVE_IO_H=1)
-endif()
-
-check_include_file(direct.h HAVE_DIRECT_H)
-if(HAVE_DIRECT_H)
-    add_definitions(-DHAVE_DIRECT_H=1)
-endif()
-
-check_include_file(arpa/inet.h HAVE_ARPA_INET_H)
-if(HAVE_ARPA_INET_H)
-    add_definitions(-DHAVE_ARPA_INET_H=1)
-endif()
-
-check_include_file(winsock2.h HAVE_WINSOCK2_H)
-if(HAVE_WINSOCK2_H)
-    add_definitions(-DHAVE_WINSOCK2_H=1)
-endif()
-
-check_include_file(ws2tcpip.h HAVE_WS2TCPIP_H)
-if(HAVE_WS2TCPIP_H)
-    add_definitions(-DHAVE_WS2TCPIP_H=1)
-endif()
-
-check_include_file(sys/time.h HAVE_SYS_TIME_H)
-if(HAVE_SYS_TIME_H)
-    add_definitions(-DHAVE_SYS_TIME_H=1)
+check_include_file(libgen.h HAVE_LIBGEN_H)
+if (HAVE_LIBGEN_H)
+    add_definitions(-DHAVE_LIBGEN_H=1)
 endif()
 
 set(SRC
     filetransfer.c
     easyfile.c)
+
+if(WIN32)
+    set(SRC
+        ${SRC}
+        windows/basename.c)
+endif()
 
 set(HEADERS
     ela_filetransfer.h)

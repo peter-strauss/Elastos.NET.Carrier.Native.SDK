@@ -26,8 +26,16 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
+
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
-#include <pthread.h>
+#endif
+#ifdef HAVE_ALLOCA_H
+#include <alloca.h>
+#endif
+#ifdef HAVE_MALLOC_H
+#include <malloc.h>
+#endif
 
 #include <rc_mem.h>
 #include <crypto.h>
