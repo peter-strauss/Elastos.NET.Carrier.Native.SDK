@@ -54,6 +54,8 @@
 #include "ela_filetransfer.h"
 #include "easyfile.h"
 
+#define TAG "File: "
+
 static
 void notify_state_changed_cb(ElaFileTransfer *ft, FileTransferConnection state,
                              void *context)
@@ -66,7 +68,7 @@ void notify_state_changed_cb(ElaFileTransfer *ft, FileTransferConnection state,
     if (state <= FileTransferConnection_initialized ||
         state > FileTransferConnection_closed)  {
         assert(0);
-        vlogE("File: Invalid filetransfer connection state :%d.", state);
+        vlogE(TAG "invalid filetransfer connection state :%d.", state);
         return;
     }
 
@@ -79,13 +81,12 @@ bool notify_file_cb(ElaFileTransfer *ft, const char *fileid,
                     const char *filename, uint64_t size, void *context)
 {
     EasyFile *file = (EasyFile *)context;
-    char fname[ELA_MAX_FILE_NAME_LEN + 1] = {0};
     int rc;
 
     assert(file);
     assert(ft);
 
-    vlogD("File: Received filetransfer file event with info [%s:%s:%z].",
+    vlogD(TAG "received filetransfer file event with info [%s:%s:%z].",
           fileid, filename, size);
 
     strcpy(file->fileid, fileid);
@@ -93,8 +94,7 @@ bool notify_file_cb(ElaFileTransfer *ft, const char *fileid,
 
     rc = ela_filetransfer_pull(ft, fileid, file->offset);
     if (rc < 0)
-        vlogE("File: Filetransfer pulling %s error (0x%x).", fileid,
-              ela_get_error());
+        vlogE(TAG "filetransfer pulling %s error (0x%x).", fileid, ela_get_error());
 
     return (rc >= 0);
 }
@@ -109,7 +109,7 @@ static void *sending_file_routine(void *args)
 
     rc = fseek(file->fp, (long)offset, SEEK_SET);
     if (rc < 0) {
-        vlogE("File: Seeking file %s to offset %llu error (%d).", file->fileid,
+        vlogE(TAG "seeking file %s to offset %llu error (%d).", file->fileid,
               offset, errno);
         return NULL;
     }
@@ -121,15 +121,15 @@ static void *sending_file_routine(void *args)
 
         rc = fread(buf, send_len, 1, file->fp);
         if (rc < 0)  {
-            vlogE("File: Reading file error (%d).", errno);
+            vlogE(TAG "reading local file error (%d).", errno);
             //TODO: close?
             break;
         }
 
         rc = ela_filetransfer_send(file->ft, file->fileid, buf, send_len);
         if (rc < 0) {
-            vlogE("File: Filetransfer sending %s error (0x%x).", file->fileid,
-                  ela_get_error());
+            vlogE(TAG "filetransfer sending %s data error (0x%x).",
+                  file->fileid, ela_get_error());
             //TOOD: close?
             break;
         }
@@ -148,19 +148,17 @@ void notify_pull_cb(ElaFileTransfer *ft, const char *fileid, uint64_t offset,
                     void *context)
 {
     EasyFile *file = (EasyFile *)context;
-    char filename[ELA_MAX_FILE_NAME_LEN + 1] = {0};
     pthread_t thread;
-    int rc;
 
     assert(file);
     assert(file->fp);
     assert(ft);
 
-    vlogD("File: Received filetransfer pulling event for %s with offset %llu.",
+    vlogD(TAG, "received filetransfer pulling event for %s with offset %llu.",
           fileid, offset);
 
     if (offset >= file->filesz) {
-        vlogE("File: Invalid filetransfer offset %llu to pull.", offset);
+        vlogE(TAG "invalid filetransfer offset %llu to pull.", offset);
         //TODO: close ?
         return;
     }
@@ -168,12 +166,8 @@ void notify_pull_cb(ElaFileTransfer *ft, const char *fileid, uint64_t offset,
     strcpy(file->fileid, fileid);
     file->offset = offset;
 
-    rc = pthread_create(&thread, NULL, sending_file_routine, file);
-    if (rc < 0) {
-        vlogE("File: Creating backgroud thread to transferring file error.");
-        return;
-    }
-    pthread_detach(thread);
+    if (!pthread_create(&thread, NULL, sending_file_routine, file))
+        pthread_detach(thread);
 }
 
 static
@@ -186,12 +180,12 @@ bool notify_data_cb(ElaFileTransfer *ft, const char *fileid, const uint8_t *data
     assert(file);
     assert(ft);
 
-    vlogT("File: Received filetransfer data event from for %s with length %lu.",
+    vlogT(TAG "received filetransfer data event from for %s with length %lu.",
           fileid, length);
 
     rc = fwrite(data, length, 1, file->fp);
     if (rc < 0) {
-        vlogE("Fille: Writing data to file %s error (%d)", file->fileid, errno);
+        vlogE(TAG "writing data to file %s error (%d).", file->fileid, errno);
         return true;
     }
 
@@ -281,7 +275,7 @@ int ela_file_send(ElaCarrier *w, const char *address, const char *filename,
 
     file->ft = ela_filetransfer_new(w, address, &fi, &cbs, file);
     if (!file->ft) {
-        vlogE("File: Creating filetransfer instance with info[%s] error (0x%x).",
+        vlogE(TAG "creating filetransfer instance with info[%s] error (0x%x).",
               fi.filename, ela_get_error());
         deref(file);
         return -1;
@@ -289,7 +283,7 @@ int ela_file_send(ElaCarrier *w, const char *address, const char *filename,
 
     rc = ela_filetransfer_connect(file->ft);
     if (rc < 0) {
-        vlogE("File: Filetransfer connecting to %s error (0x%x).", address,
+        vlogE(TAG "filetransfer connecting to %s error (0x%x).", address,
               ela_get_error());
         deref(file);
     }
@@ -349,7 +343,7 @@ int ela_file_recv(ElaCarrier *w, const char *address, const char *filename,
 
     file->ft = ela_filetransfer_new(w, address, NULL, &cbs, file);
     if (!file->ft) {
-        vlogE("File: Creating filetransfer instance to %s error (0x%x).",
+        vlogE(TAG "creating filetransfer instance to %s error (0x%x).",
               address, ela_get_error());
         deref(file);
         return -1;
@@ -357,7 +351,7 @@ int ela_file_recv(ElaCarrier *w, const char *address, const char *filename,
 
     rc = ela_filetransfer_accept_connect(file->ft);
     if (rc < 0) {
-        vlogE("File: Accepting filletransfer connection from %s error (0x%x)",
+        vlogE(TAG "accepting filletransfer connection from %s error (0x%x).",
               address, ela_get_error());
         deref(file);
     }
