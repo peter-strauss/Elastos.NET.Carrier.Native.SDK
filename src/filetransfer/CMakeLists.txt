@@ -24,6 +24,11 @@ if (HAVE_LIBGEN_H)
     add_definitions(-DHAVE_LIBGEN_H=1)
 endif()
 
+check_include_file(winsock2.h HAVE_WINSOCK2_H)
+if(HAVE_WINSOCK2_H)
+    add_definitions(-DHAVE_WINSOCK2_H=1)
+endif()
+
 set(SRC
     filetransfer.c
     easyfile.c)
@@ -98,7 +103,7 @@ if(ENABLE_SHARED)
 
     target_compile_definitions(elafiletransfer-shared PRIVATE CARRIER_DYNAMIC CRYSTAL_DYNAMIC)
     set_target_properties(elafiletransfer-shared PROPERTIES OUTPUT_NAME elafiletransfer)
-    target_link_libraries(elafiletransfer-shared ${LIBS} ${SYSTEM_LIBS})
+    target_link_libraries(elafiletransfer-shared ${LIBS} )
     add_dependencies(ela-filetransfer elafiletransfer-shared)
 
     install(TARGETS elafiletransfer-shared
