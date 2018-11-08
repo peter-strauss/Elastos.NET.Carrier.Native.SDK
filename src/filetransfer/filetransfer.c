@@ -438,18 +438,27 @@ static bool stream_channel_open(ElaSession *ws, int stream, int channel,
           "[%s:%s:%llu] over new channel %s.", fti.filename, fti.fileid,
           _LLUV(fti.size), channel);
 
-    item = get_fileinfo_free(ft);
+    item = get_fileinfo_fileid(ft, fti.fileid);
     if (!item) {
-        vlogE(TAG "no free slots avaiable to receive file transferring "
-              "over channel %d, dropping.", channel);
-        return false;
-    }
+        item = get_fileinfo_free(ft);
+        if (!item) {
+            vlogE(TAG "no free slots avaiable to receive file transferring "
+                  "over channel %d, dropping.", channel);
+            return false;
+        }
 
-    strcpy(item->fileid, fti.fileid);
-    item->filename = strdup(fti.filename);
-    item->filesz = fti.size;
-    item->channel = channel;
-    item->state = FileTransferState_standby;
+        strcpy(item->fileid, fti.fileid);
+        item->filename = strdup(fti.filename);
+        item->filesz = fti.size;
+        item->channel = channel;
+        item->state = FileTransferState_standby;
+    } else {
+        if (item->state != FileTransferState_standby) {
+            vlogE(TAG "sender received pull request data over channel %s "
+                  "in wrong state %d, dropping.", channel, item->state);
+            return false;
+        }
+    }
 
     if (ft->callbacks.file) {
         bool res;
