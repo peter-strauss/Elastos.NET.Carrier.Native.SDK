@@ -351,6 +351,8 @@ static void get_self_info_cb(const uint8_t *address, const uint8_t *public_key,
     ElaCarrier *w = (ElaCarrier *)context;
     ElaUserInfo *ui = &w->me;
     size_t text_len;
+    char dht_name[ELA_MAX_USER_NAME_LEN + 1];
+    int name_len;
 
     memcpy(w->address, address, DHT_ADDRESS_SIZE);
     memcpy(w->public_key, public_key, DHT_PUBLIC_KEY_SIZE);
@@ -366,6 +368,17 @@ static void get_self_info_cb(const uint8_t *address, const uint8_t *public_key,
         unpack_user_desc(desc, desc_len, ui, NULL);
     else
         fill_empty_user_desc(w);
+
+    name_len = dht_self_get_name(&w->dht, (uint8_t *)dht_name,
+                                 sizeof(dht_name));
+    if (name_len < 0)
+        return;
+
+    if ((name_len <= 1 && !*w->me.name) ||
+        (name_len > 1 && !strcmp(dht_name, w->me.name)))
+        return;
+
+    dht_self_set_name(&w->dht, (uint8_t *)w->me.name, strlen(w->me.name) + 1);
 }
 
 static bool friends_iterate_cb(uint32_t friend_number,
@@ -1312,7 +1325,7 @@ void notify_friend_description_cb(uint32_t friend_number, const uint8_t *desc,
     ElaCarrier *w = (ElaCarrier *)context;
     FriendInfo *fi;
     ElaUserInfo *ui;
-    bool changed;
+    bool changed = false;
 
     assert(friend_number != UINT32_MAX);
     assert(desc);
@@ -2078,7 +2091,7 @@ void notify_group_message_cb(uint32_t group_number, uint32_t peer_number,
 
 static
 void notify_group_title_cb(uint32_t group_number, uint32_t peer_number,
-                           const char *title, void *user_data)
+                           const uint8_t *title, size_t length, void *user_data)
 {
     ElaCarrier *w = (ElaCarrier *)user_data;
     char groupid[ELA_MAX_ID_LEN + 1];
@@ -2107,12 +2120,15 @@ void notify_group_title_cb(uint32_t group_number, uint32_t peer_number,
 
     if (w->callbacks.group_callbacks.group_title)
         w->callbacks.group_callbacks.group_title(w, groupid, peerid,
-                                                title, w->context);
+                                                length ?
+                                                (const char *)title : "",
+                                                w->context);
 }
 
 static
 void notify_group_peer_name_cb(uint32_t group_number, uint32_t peer_number,
-                               const char *name, void *user_data)
+                               const uint8_t *name, size_t length,
+                               void *user_data)
 {
     ElaCarrier *w = (ElaCarrier *)user_data;
     char groupid[ELA_MAX_ID_LEN + 1];
@@ -2121,7 +2137,7 @@ void notify_group_peer_name_cb(uint32_t group_number, uint32_t peer_number,
 
     rc = get_groupid_by_number(w, group_number, groupid, sizeof(groupid));
     if (rc < 0) {
-        vlogE("Carrier: Unknown group number %u, group titile change event "
+        vlogE("Carrier: Unknown group number %u, group peer name change event "
               "dropped.", group_number);
         return;
     }
@@ -2129,13 +2145,14 @@ void notify_group_peer_name_cb(uint32_t group_number, uint32_t peer_number,
     rc = get_peerid_by_number(w, group_number, peer_number, peerid,
                               sizeof(peerid));
     if (rc < 0) {
-        vlogE("Carrier: Unknown peer number %u, group titile change event "
+        vlogE("Carrier: Unknown peer number %u, group peer name change event "
               "dropped.", peer_number);
         return;
     }
 
     if (w->callbacks.group_callbacks.peer_name)
-        w->callbacks.group_callbacks.peer_name(w, groupid, peerid, name,
+        w->callbacks.group_callbacks.peer_name(w, groupid, peerid,
+                                               length ? (char *)name : "",
                                                w->context);
 }
 
@@ -2367,7 +2384,8 @@ int ela_set_self_info(ElaCarrier *w, const ElaUserInfo *info)
 
     if (did_changed) {
         if (strcmp(info->name, w->me.name)) {
-            int rc = dht_self_set_name(&w->dht, info->name);
+            int rc = dht_self_set_name(&w->dht, (uint8_t *)info->name,
+                                       strlen(info->name) + 1);
             if (rc) {
                 elacp_free(cp);
                 ela_set_error(rc);
@@ -2913,7 +2931,6 @@ int ela_invite_friend(ElaCarrier *w, const char *to, const char *bundle,
     ElaCP *cp;
     int rc;
     int64_t tid;
-    int count = 0;
     int index = 0;
     int bundle_len = bundle ? strlen(bundle) : 0;
     char *pos = (char *)data;
@@ -2963,7 +2980,6 @@ int ela_invite_friend(ElaCarrier *w, const char *to, const char *bundle,
     }
 
     tid = generate_tid();
-    count = (len + INVITE_DATA_UNIT - 1) / INVITE_DATA_UNIT;
 
     do {
         uint8_t *_data;
@@ -3053,7 +3069,6 @@ int ela_reply_friend_invite(ElaCarrier *w, const char *to, const char *bundle,
     char *addr, *userid, *ext_name;
     uint32_t friend_number;
     int64_t tid;
-    int count = 0;
     int index = 0;
     int bundle_len = bundle ? strlen(bundle) : 0;
     int reason_len = reason ? strlen(reason) : 0;
@@ -3120,8 +3135,6 @@ int ela_reply_friend_invite(ElaCarrier *w, const char *to, const char *bundle,
         ela_set_error(ELA_GENERAL_ERROR(ELAERR_NO_MATCHED_REQUEST));
         return -1;
     }
-
-    count = (len + INVITE_DATA_UNIT - 1) / INVITE_DATA_UNIT;
 
     do {
         uint8_t *_data;
@@ -3495,7 +3508,8 @@ int ela_group_get_title(ElaCarrier *w, const char *groupid, char *title,
         return  -1;
     }
 
-    rc = dht_group_get_title(&w->dht, group_number, title, length);
+    memset(title, 0, length);
+    rc = dht_group_get_title(&w->dht, group_number, (uint8_t *)title, length);
     if (rc < 0) {
         ela_set_error(rc);
         return -1;
@@ -3507,6 +3521,7 @@ int ela_group_get_title(ElaCarrier *w, const char *groupid, char *title,
 int ela_group_set_title(ElaCarrier *w, const char *groupid, const char *title)
 {
     uint32_t group_number;
+    char buf[ELA_MAX_GROUP_TITLE_LEN + 1];
     int rc;
 
     if (!w || !groupid || !*groupid || !title || !*title ||
@@ -3526,7 +3541,17 @@ int ela_group_set_title(ElaCarrier *w, const char *groupid, const char *title)
         return -1;
     }
 
-    rc = dht_group_set_title(&w->dht, group_number, title);
+    rc = dht_group_get_title(&w->dht, group_number, (uint8_t *)buf, sizeof(buf));
+    if (rc < 0) {
+        ela_set_error(rc);
+        return -1;
+    }
+
+    if ((rc <= 1 && !*title) || (rc > 1 && strcmp(buf, title) == 0))
+        return 0;
+
+    rc = dht_group_set_title(&w->dht, group_number, (uint8_t *)title,
+                             strlen(title) + 1);
     if (rc < 0) {
         ela_set_error(rc);
         return -1;
@@ -3578,6 +3603,10 @@ int ela_group_get_peers(ElaCarrier *w, const char *groupid,
             vlogW("Carrier: Get peer %lu name from group:%lu error.",
                   i, group_number);
             continue;
+        } else if (rc == 0) {
+            peer.name[0] = '\0';
+        } else {
+            //Dothing.
         }
 
         rc = dht_group_get_peer_public_key(&w->dht, group_number, i, public_key);
@@ -3660,6 +3689,7 @@ int ela_group_get_peer(ElaCarrier *w, const char *groupid,
         return -1;
     }
 
+    memset(peer->name, 0, sizeof(peer->name));
     rc = dht_group_get_peer_name(&w->dht, group_number, i, peer->name,
                                  sizeof(peer->name));
     if (rc < 0) {
@@ -3670,6 +3700,7 @@ int ela_group_get_peer(ElaCarrier *w, const char *groupid,
     }
 
     strcpy(peer->userid, peerid);
+
     return 0;
 }
 

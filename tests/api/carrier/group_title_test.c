@@ -23,25 +23,30 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+#ifdef HAVE_MALLOC_H
+#include <malloc.h>
+#endif
+#if defined(_WIN32) || defined(_WIN64)
+#include <posix_helper.h>
+#endif
 
 #include <CUnit/Basic.h>
 #include <vlog.h>
 
 #include "ela_carrier.h"
-
 #include "cond.h"
 #include "test_helper.h"
 
 struct CarrierContextExtra {
-    char* from;
-    char* msg;
-    int len;
+    ElaConnectionStatus connection_status;
 };
 
 static CarrierContextExtra extra = {
-    .from = NULL,
-    .msg  = NULL,
-    .len  = 0
+    .connection_status = ElaConnectionStatus_Disconnected
+
 };
 
 static inline void wakeup(void* context)
@@ -69,23 +74,23 @@ static void friend_connection_cb(ElaCarrier *w, const char *friendid,
 {
     CarrierContext *wctxt = (CarrierContext *)context;
 
+    wctxt->extra->connection_status = status;
     wctxt->friend_status = (status == ElaConnectionStatus_Connected) ?
-                         ONLINE : OFFLINE;
+                           ONLINE : OFFLINE;
     cond_signal(wctxt->friend_status_cond);
 
     vlogD("Robot connection status changed -> %s", connection_str(status));
 }
 
-static void friend_message_cb(ElaCarrier *w, const char *from, const void *msg, size_t len,
-                              void *context)
+static void peer_list_changed_cb(ElaCarrier *carrier, const char *groupid,
+                                 void *context)
 {
-    CarrierContextExtra *extra = ((CarrierContext *)context)->extra;
+    CarrierContext *wctx = (CarrierContext *)context;
 
-    extra->from = strdup(from);
-    extra->msg  = strdup((const char *)msg);
-    extra->len  = (int)len;
+    wctx->peer_list_cnt++;
+    strcpy(wctx->joined_groupid, groupid);
 
-    wakeup(context);
+    cond_signal(wctx->group_cond);
 }
 
 static ElaCallbacks callbacks = {
@@ -100,13 +105,22 @@ static ElaCallbacks callbacks = {
     .friend_request  = NULL,
     .friend_added    = friend_added_cb,
     .friend_removed  = friend_removed_cb,
-    .friend_message  = friend_message_cb,
-    .friend_invite   = NULL
+    .friend_message  = NULL,
+    .friend_invite   = NULL,
+    .group_invite    = NULL,
+    .group_callbacks = {
+        .group_connected = NULL,
+        .group_message = NULL,
+        .group_title = NULL,
+        .peer_name = NULL,
+        .peer_list_changed = peer_list_changed_cb
+    }
 };
 
 static Condition DEFINE_COND(ready_cond);
 static Condition DEFINE_COND(cond);
 static Condition DEFINE_COND(friend_status_cond);
+static Condition DEFINE_COND(group_cond);
 
 static CarrierContext carrier_context = {
     .cbs = &callbacks,
@@ -114,12 +128,15 @@ static CarrierContext carrier_context = {
     .ready_cond = &ready_cond,
     .cond = &cond,
     .friend_status_cond = &friend_status_cond,
+    .group_cond = &group_cond,
     .extra = &extra
 };
 
 static void test_context_reset(TestContext *context)
 {
+    context->carrier->peer_list_cnt = 0;
     cond_reset(context->carrier->cond);
+    cond_reset(context->carrier->group_cond);
     cond_reset(context->carrier->friend_status_cond);
 }
 
@@ -130,108 +147,67 @@ static TestContext test_context = {
     .context_reset = test_context_reset
 };
 
-static void test_send_message_to_friend(void)
+static int set_title_routine(TestContext *ctx, size_t title_len)
 {
-    CarrierContext *wctxt = test_context.carrier;
+    CarrierContext *wctx = test_context.carrier;
+    char check[ELA_MAX_GROUP_TITLE_LEN + 1];
+    char *title;
+    char cmd[128];
+    char result[128];
     int rc;
 
-    test_context.context_reset(&test_context);
+    title = (char *)alloca(title_len + 1);
+    memset(title, 'D', title_len);
+    title[title_len] = 0;
 
-    rc = add_friend_anyway(&test_context, robotid, robotaddr);
-    CU_ASSERT_EQUAL_FATAL(rc, 0);
-    CU_ASSERT_TRUE_FATAL(ela_is_friend(wctxt->carrier, robotid));
-
-    const char* out = "message-test";
-    rc = ela_send_friend_message(wctxt->carrier, robotid, out, strlen(out) + 1);
+    rc = ela_group_set_title(wctx->carrier, wctx->groupid, title);
     CU_ASSERT_EQUAL_FATAL(rc, 0);
 
-    char in[64];
-    rc = read_ack("%64s", in);
-    CU_ASSERT_EQUAL(rc, 1);
-    CU_ASSERT_STRING_EQUAL(in, out);
+    rc = ela_group_get_title(wctx->carrier, wctx->groupid, check,
+                             sizeof(check));
+    CU_ASSERT_EQUAL_FATAL(rc, 0);
+    CU_ASSERT_STRING_EQUAL(title, check);
+
+    rc = read_ack("%128s %128s", cmd, result);
+    CU_ASSERT_TRUE_FATAL(rc == 2);
+    CU_ASSERT_TRUE_FATAL(strcmp(cmd, "gtitle") == 0);
+    CU_ASSERT_TRUE_FATAL(strcmp(result, title) == 0);
+
+    return 0;
 }
 
-static void test_send_message_from_friend(void)
+static int check_set_title(TestContext *ctxt)
 {
-    CarrierContext *wctxt = test_context.carrier;
-    CarrierContextExtra *extra = wctxt->extra;
-    char userid[ELA_MAX_ID_LEN + 1];
-    int rc;
-
-    test_context.context_reset(&test_context);
-
-    rc = add_friend_anyway(&test_context, robotid, robotaddr);
-    CU_ASSERT_EQUAL_FATAL(rc, 0);
-    CU_ASSERT_TRUE_FATAL(ela_is_friend(wctxt->carrier, robotid));
-
-    ela_get_userid(wctxt->carrier, userid, sizeof(userid));
-    const char* msg = "message-test";
-
-    rc = write_cmd("fmsg %s %s\n", userid, msg);
-    CU_ASSERT_FATAL(rc > 0);
-
-    // wait for message from robot.
-    bool bRet = cond_trywait(wctxt->cond, 60000);
-    CU_ASSERT_TRUE(bRet);
-    if (bRet) {
-        CU_ASSERT_NSTRING_EQUAL(extra->from, robotid, strlen(robotid));
-        CU_ASSERT_STRING_EQUAL(extra->msg, msg);
-        CU_ASSERT_EQUAL(strlen(extra->msg), strlen(msg));
-        CU_ASSERT_EQUAL(extra->len, strlen(msg) + 1);
-
-        FREE_ANYWAY(extra->from);
-        FREE_ANYWAY(extra->msg);
-    }
+    return  set_title_routine(ctxt, 31);
 }
 
-static void test_send_message_to_stranger(void)
+static int check_set_max_length_title(TestContext *ctxt)
 {
-    CarrierContext *wctxt = test_context.carrier;
-    int rc;
-
-    test_context.context_reset(&test_context);
-
-    rc = remove_friend_anyway(&test_context, robotid);
-    CU_ASSERT_EQUAL_FATAL(rc, 0);
-    CU_ASSERT_FALSE_FATAL(ela_is_friend(wctxt->carrier, robotid));
-
-    const char* msg = "test-message";
-    rc = ela_send_friend_message(wctxt->carrier, robotid, msg, strlen(msg));
-    CU_ASSERT_EQUAL(rc, -1);
-    CU_ASSERT_EQUAL(ela_get_error(), ELA_GENERAL_ERROR(ELAERR_NOT_EXIST));
+    return set_title_routine(ctxt, ELA_MAX_GROUP_TITLE_LEN);
 }
 
-static void test_send_message_to_self(void)
+static void test_group_set_title(void)
 {
-    CarrierContext *wctxt = test_context.carrier;
-    char userid[ELA_MAX_ID_LEN + 1];
-    char nodeid[ELA_MAX_ID_LEN + 1];
-    const char* msg = "test-message";
-    int rc;
+    test_group_scheme(&test_context, check_set_title);
+}
 
-    test_context.context_reset(&test_context);
-
-    (void)ela_get_userid(wctxt->carrier, userid, sizeof(userid));
-    (void)ela_get_nodeid(wctxt->carrier, nodeid, sizeof(nodeid));
-    rc = ela_send_friend_message(wctxt->carrier, userid, msg, strlen(msg));
-    CU_ASSERT_EQUAL_FATAL(rc, -1);
-    CU_ASSERT_EQUAL_FATAL(ela_get_error(), ELA_GENERAL_ERROR(ELAERR_INVALID_ARGS));
+static void test_group_set_max_length_title(void)
+{
+    test_group_scheme(&test_context, check_set_max_length_title);
 }
 
 static CU_TestInfo cases[] = {
-    { "test_send_message_to_friend",   test_send_message_to_friend },
-    { "test_send_message_from_friend", test_send_message_from_friend },
-    { "test_send_message_to_stranger", test_send_message_to_stranger },
-    { "test_send_message_to_self",     test_send_message_to_self },
-    {NULL, NULL }
+    { "test_group_set_title",            test_group_set_title            },
+    { "test_group_set_max_length_title", test_group_set_max_length_title },
+    { NULL, NULL }
 };
 
-CU_TestInfo *friend_message_test_get_cases(void)
+CU_TestInfo *group_title_test_get_cases(void)
 {
     return cases;
 }
 
-int friend_message_test_suite_init(void)
+int group_title_test_suite_init(void)
 {
     int rc;
 
@@ -244,7 +220,7 @@ int friend_message_test_suite_init(void)
     return 0;
 }
 
-int friend_message_test_suite_cleanup(void)
+int group_title_test_suite_cleanup(void)
 {
     test_suite_cleanup(&test_context);
 

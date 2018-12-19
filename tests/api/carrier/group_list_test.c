@@ -20,18 +20,58 @@
  * SOFTWARE.
  */
 
+#include <stdio.h>
 #include <stdlib.h>
-
+#include <string.h>
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+#if defined(_WIN32) || defined(_WIN64)
+#include <posix_helper.h>
+#endif
 #include <CUnit/Basic.h>
 #include <vlog.h>
 
 #include "ela_carrier.h"
-
+#include "cond.h"
 #include "test_helper.h"
+
+struct CarrierContextExtra {
+    char *groupids[32];
+    uint32_t groupids_mask;
+    int group_count;
+    int group_total;
+};
+
+static CarrierContextExtra extra = {
+    .groupids_mask  = 0,
+    .group_count = 0,
+    .group_total = 32
+};
 
 static void ready_cb(ElaCarrier *w, void *context)
 {
     cond_signal(((CarrierContext *)context)->ready_cond);
+}
+
+static bool group_iterate_cb(const char *groupid, void *context)
+{
+    CarrierContextExtra *extra = (CarrierContextExtra *)context;
+    assert(extra);
+
+    if (groupid) {
+        int i;
+
+        for (i = 0; i < extra->group_total; i++) {
+            if (strcmp(groupid, extra->groupids[i]) == 0) {
+                extra->groupids_mask |= 1 << i;
+                break;
+            }
+        }
+        extra->group_count++;
+    }
+
+    return true;
 }
 
 static ElaCallbacks callbacks = {
@@ -47,7 +87,9 @@ static ElaCallbacks callbacks = {
     .friend_added    = NULL,
     .friend_removed  = NULL,
     .friend_message  = NULL,
-    .friend_invite   = NULL
+    .friend_invite   = NULL,
+    .group_invite    = NULL,
+    .group_callbacks = {0}
 };
 
 static Condition DEFINE_COND(ready_cond);
@@ -59,75 +101,72 @@ static CarrierContext carrier_context = {
     .ready_cond = &ready_cond,
     .cond = &cond,
     .friend_status_cond = NULL,
-    .extra = NULL
+    .extra = &extra
 };
 
 static TestContext test_context = {
     .carrier = &carrier_context,
     .session = NULL,
-    .stream  = NULL
+    .stream  = NULL,
+    .context_reset = NULL
 };
 
-static void test_get_self_info(void)
+static void test_group_get_groups(void)
 {
-    ElaCarrier *w = test_context.carrier->carrier;
+    CarrierContext *wctx = test_context.carrier;
+    CarrierContextExtra *extra = wctx->extra;
+    char groupid[ELA_MAX_ID_LEN + 1] = {0};
     int rc;
-    char *p;
-    ElaUserInfo me;
-    ElaUserInfo info = {
-        .name   = {"zhangsan"},
-        .description = { "We all want a code to live by." },
-        .gender = { "male" },
-        .phone  = { "01012345" },
-        .email  = { "zhangsan@163.com" },
-        .region = { "Beijing" },
-        .has_avatar = 0
-    };
+    int i;
 
-    memset(&me, 0, sizeof(me));
+    for (i = 0; i < extra->group_total; i++) {
+        extra->groupids[i] = NULL;
 
-    p = ela_get_userid(w, info.userid, sizeof(info.userid));
-    CU_ASSERT_PTR_NOT_NULL_FATAL(p);
+        rc = ela_new_group(wctx->carrier, groupid, sizeof(groupid));
+        CU_ASSERT_EQUAL_FATAL(rc, 0);
+        CU_ASSERT_FATAL(strlen(groupid) > 0);
 
-    rc = ela_set_self_info(w, &info);
+        extra->groupids[i] = strdup(groupid);
+    }
+
+    rc = ela_get_groups(wctx->carrier, group_iterate_cb, extra);
     CU_ASSERT_EQUAL_FATAL(rc, 0);
+    CU_ASSERT_EQUAL_FATAL(extra->group_count, extra->group_total);
+    CU_ASSERT_EQUAL_FATAL(extra->groupids_mask, 0xFFFFFFFF);
 
-    rc = ela_get_self_info(w, &me);
-    CU_ASSERT_EQUAL_FATAL(rc, 0);
-
-    CU_ASSERT_STRING_EQUAL(me.userid, info.userid);
-    CU_ASSERT_STRING_EQUAL(me.region, info.region);
-    CU_ASSERT_STRING_EQUAL(me.phone, info.phone);
-    CU_ASSERT_STRING_EQUAL(me.name, info.name);
-    CU_ASSERT_STRING_EQUAL(me.gender, info.gender);
-    CU_ASSERT_STRING_EQUAL(me.email, info.email);
-    CU_ASSERT_STRING_EQUAL(me.description, info.description);
-    CU_ASSERT_EQUAL(me.has_avatar, info.has_avatar);
+    for (i = 0; i < extra->group_total; i++) {
+        rc = ela_leave_group(wctx->carrier, extra->groupids[i]);
+        CU_ASSERT_EQUAL_FATAL(rc, 0);
+        free(extra->groupids[i]);
+    }
 }
 
 static CU_TestInfo cases[] = {
-    { "test_get_self_info", test_get_self_info },
+    { "test_group_get_groups",   test_group_get_groups },
     { NULL, NULL }
 };
 
-CU_TestInfo *get_info_test_get_cases(void)
+CU_TestInfo *group_list_test_get_cases(void)
 {
     return cases;
 }
 
-int get_info_test_suite_init(void)
+int group_list_test_suite_init(void)
 {
     int rc;
 
     rc = test_suite_init(&test_context);
-    if (rc < 0)
+    if (rc < 0) {
         CU_FAIL("Error: test suite initialize error");
+        return -1;
+    }
 
-    return rc;
+    return 0;
 }
 
-int get_info_test_suite_cleanup(void)
+int group_list_test_suite_cleanup(void)
 {
     test_suite_cleanup(&test_context);
+
     return 0;
 }

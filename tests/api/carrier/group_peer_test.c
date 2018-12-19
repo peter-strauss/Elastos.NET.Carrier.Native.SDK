@@ -19,29 +19,35 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+#if defined(_WIN32) || defined(_WIN64)
+#include <posix_helper.h>
+#endif
 
 #include <CUnit/Basic.h>
 #include <vlog.h>
 
 #include "ela_carrier.h"
-
 #include "cond.h"
 #include "test_helper.h"
 
 struct CarrierContextExtra {
-    char* from;
-    char* msg;
-    int len;
+    ElaConnectionStatus connection_status;
+
+    ElaGroupPeer group_peers[2];
+    int peer_count;
 };
 
 static CarrierContextExtra extra = {
-    .from = NULL,
-    .msg  = NULL,
-    .len  = 0
+    .connection_status = ElaConnectionStatus_Disconnected,
+
+    .group_peers = {0},
+    .peer_count = 0
 };
 
 static inline void wakeup(void* context)
@@ -69,23 +75,37 @@ static void friend_connection_cb(ElaCarrier *w, const char *friendid,
 {
     CarrierContext *wctxt = (CarrierContext *)context;
 
+    wctxt->extra->connection_status = status;
     wctxt->friend_status = (status == ElaConnectionStatus_Connected) ?
-                         ONLINE : OFFLINE;
+                           ONLINE : OFFLINE;
     cond_signal(wctxt->friend_status_cond);
 
     vlogD("Robot connection status changed -> %s", connection_str(status));
 }
 
-static void friend_message_cb(ElaCarrier *w, const char *from, const void *msg, size_t len,
-                              void *context)
+static void peer_list_changed_cb(ElaCarrier *carrier, const char *groupid,
+                                 void *context)
+{
+    CarrierContext *wctx = (CarrierContext *)context;
+    assert(wctx);
+
+    wctx->peer_list_cnt++;
+    strcpy(wctx->joined_groupid, groupid);
+
+    cond_signal(wctx->group_cond);
+}
+
+static bool peer_iterate_cb(const ElaGroupPeer *peer, void *context)
 {
     CarrierContextExtra *extra = ((CarrierContext *)context)->extra;
+    assert(extra);
 
-    extra->from = strdup(from);
-    extra->msg  = strdup((const char *)msg);
-    extra->len  = (int)len;
+    if (peer) {
+        memcpy(&extra->group_peers[extra->peer_count], peer, sizeof(ElaGroupPeer));
+        extra->peer_count++;
+    }
 
-    wakeup(context);
+    return true;
 }
 
 static ElaCallbacks callbacks = {
@@ -100,13 +120,22 @@ static ElaCallbacks callbacks = {
     .friend_request  = NULL,
     .friend_added    = friend_added_cb,
     .friend_removed  = friend_removed_cb,
-    .friend_message  = friend_message_cb,
-    .friend_invite   = NULL
+    .friend_message  = NULL,
+    .friend_invite   = NULL,
+    .group_invite    = NULL,
+    .group_callbacks = {
+        .group_connected = NULL,
+        .group_message = NULL,
+        .group_title = NULL,
+        .peer_name = NULL,
+        .peer_list_changed = peer_list_changed_cb
+    }
 };
 
 static Condition DEFINE_COND(ready_cond);
 static Condition DEFINE_COND(cond);
 static Condition DEFINE_COND(friend_status_cond);
+static Condition DEFINE_COND(group_cond);
 
 static CarrierContext carrier_context = {
     .cbs = &callbacks,
@@ -114,12 +143,16 @@ static CarrierContext carrier_context = {
     .ready_cond = &ready_cond,
     .cond = &cond,
     .friend_status_cond = &friend_status_cond,
+    .group_cond = &group_cond,
+    .peer_list_cnt = 0,
     .extra = &extra
 };
 
 static void test_context_reset(TestContext *context)
 {
+    context->carrier->peer_list_cnt = 0;
     cond_reset(context->carrier->cond);
+    cond_reset(context->carrier->group_cond);
     cond_reset(context->carrier->friend_status_cond);
 }
 
@@ -130,108 +163,77 @@ static TestContext test_context = {
     .context_reset = test_context_reset
 };
 
-static void test_send_message_to_friend(void)
+static int group_get_peer_cb(TestContext *ctx)
 {
-    CarrierContext *wctxt = test_context.carrier;
+    CarrierContext *wctx = test_context.carrier;
+    char userid[ELA_MAX_ID_LEN + 1] = {0};
+    ElaGroupPeer peer = {0};
     int rc;
 
-    test_context.context_reset(&test_context);
-
-    rc = add_friend_anyway(&test_context, robotid, robotaddr);
+    rc = ela_group_get_peer(wctx->carrier, wctx->groupid, robotid, &peer);
     CU_ASSERT_EQUAL_FATAL(rc, 0);
-    CU_ASSERT_TRUE_FATAL(ela_is_friend(wctxt->carrier, robotid));
+    CU_ASSERT_TRUE_FATAL(strcmp(robotid, peer.userid) == 0);
 
-    const char* out = "message-test";
-    rc = ela_send_friend_message(wctxt->carrier, robotid, out, strlen(out) + 1);
+    ela_get_userid(wctx->carrier, userid, sizeof(userid));
+    rc = ela_group_get_peer(wctx->carrier, wctx->groupid, userid, &peer);
     CU_ASSERT_EQUAL_FATAL(rc, 0);
+    CU_ASSERT_TRUE_FATAL(strcmp(userid, peer.userid) == 0);
 
-    char in[64];
-    rc = read_ack("%64s", in);
-    CU_ASSERT_EQUAL(rc, 1);
-    CU_ASSERT_STRING_EQUAL(in, out);
+    return 0;
 }
 
-static void test_send_message_from_friend(void)
+static int group_get_peers_cb(TestContext *ctx)
 {
-    CarrierContext *wctxt = test_context.carrier;
-    CarrierContextExtra *extra = wctxt->extra;
-    char userid[ELA_MAX_ID_LEN + 1];
+    CarrierContext *wctx = test_context.carrier;
+    CarrierContextExtra *extra = wctx->extra;
+    char userid[ELA_MAX_ID_LEN + 1] = {0};
+    char *p;
     int rc;
+    int i;
+    int weight;
 
-    test_context.context_reset(&test_context);
-
-    rc = add_friend_anyway(&test_context, robotid, robotaddr);
+    rc = ela_group_get_peers(wctx->carrier, wctx->groupid, peer_iterate_cb, wctx);
     CU_ASSERT_EQUAL_FATAL(rc, 0);
-    CU_ASSERT_TRUE_FATAL(ela_is_friend(wctxt->carrier, robotid));
+    CU_ASSERT_EQUAL_FATAL(extra->peer_count, 2);
 
-    ela_get_userid(wctxt->carrier, userid, sizeof(userid));
-    const char* msg = "message-test";
+    p = ela_get_userid(wctx->carrier, userid, sizeof(userid));
+    CU_ASSERT_EQUAL_FATAL(p, userid);
 
-    rc = write_cmd("fmsg %s %s\n", userid, msg);
-    CU_ASSERT_FATAL(rc > 0);
+    weight = 0;
+    for (i = 0; i < 2; i++) {
+        if (strcmp(userid, extra->group_peers[i].userid) == 0)
+            weight++;
 
-    // wait for message from robot.
-    bool bRet = cond_trywait(wctxt->cond, 60000);
-    CU_ASSERT_TRUE(bRet);
-    if (bRet) {
-        CU_ASSERT_NSTRING_EQUAL(extra->from, robotid, strlen(robotid));
-        CU_ASSERT_STRING_EQUAL(extra->msg, msg);
-        CU_ASSERT_EQUAL(strlen(extra->msg), strlen(msg));
-        CU_ASSERT_EQUAL(extra->len, strlen(msg) + 1);
-
-        FREE_ANYWAY(extra->from);
-        FREE_ANYWAY(extra->msg);
+        if (strcmp(robotid, extra->group_peers[i].userid) == 0)
+            weight++;
     }
+    CU_ASSERT_EQUAL_FATAL(weight, 2);
+
+    return 0;
 }
 
-static void test_send_message_to_stranger(void)
+static void test_group_get_peer(void)
 {
-    CarrierContext *wctxt = test_context.carrier;
-    int rc;
-
-    test_context.context_reset(&test_context);
-
-    rc = remove_friend_anyway(&test_context, robotid);
-    CU_ASSERT_EQUAL_FATAL(rc, 0);
-    CU_ASSERT_FALSE_FATAL(ela_is_friend(wctxt->carrier, robotid));
-
-    const char* msg = "test-message";
-    rc = ela_send_friend_message(wctxt->carrier, robotid, msg, strlen(msg));
-    CU_ASSERT_EQUAL(rc, -1);
-    CU_ASSERT_EQUAL(ela_get_error(), ELA_GENERAL_ERROR(ELAERR_NOT_EXIST));
+    test_group_scheme(&test_context, group_get_peer_cb);
 }
 
-static void test_send_message_to_self(void)
+static void test_group_get_peers(void)
 {
-    CarrierContext *wctxt = test_context.carrier;
-    char userid[ELA_MAX_ID_LEN + 1];
-    char nodeid[ELA_MAX_ID_LEN + 1];
-    const char* msg = "test-message";
-    int rc;
-
-    test_context.context_reset(&test_context);
-
-    (void)ela_get_userid(wctxt->carrier, userid, sizeof(userid));
-    (void)ela_get_nodeid(wctxt->carrier, nodeid, sizeof(nodeid));
-    rc = ela_send_friend_message(wctxt->carrier, userid, msg, strlen(msg));
-    CU_ASSERT_EQUAL_FATAL(rc, -1);
-    CU_ASSERT_EQUAL_FATAL(ela_get_error(), ELA_GENERAL_ERROR(ELAERR_INVALID_ARGS));
+    test_group_scheme(&test_context, group_get_peers_cb);
 }
 
 static CU_TestInfo cases[] = {
-    { "test_send_message_to_friend",   test_send_message_to_friend },
-    { "test_send_message_from_friend", test_send_message_from_friend },
-    { "test_send_message_to_stranger", test_send_message_to_stranger },
-    { "test_send_message_to_self",     test_send_message_to_self },
-    {NULL, NULL }
+    { "test_group_get_peer",    test_group_get_peer },
+    { "test_group_get_peers",   test_group_get_peers },
+    { NULL, NULL }
 };
 
-CU_TestInfo *friend_message_test_get_cases(void)
+CU_TestInfo *group_peer_test_get_cases(void)
 {
     return cases;
 }
 
-int friend_message_test_suite_init(void)
+int group_peer_test_suite_init(void)
 {
     int rc;
 
@@ -244,7 +246,7 @@ int friend_message_test_suite_init(void)
     return 0;
 }
 
-int friend_message_test_suite_cleanup(void)
+int group_peer_test_suite_cleanup(void)
 {
     test_suite_cleanup(&test_context);
 
