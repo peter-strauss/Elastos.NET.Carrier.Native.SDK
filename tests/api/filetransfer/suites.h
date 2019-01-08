@@ -20,36 +20,20 @@
  * SOFTWARE.
  */
 
-#ifndef __EASYFILE_H__
-#define __EASYFILE_H__
+#ifndef __API_FILETRANSFER_TEST_SUITES_H__
+#define __API_FILETRANSFER_TEST_SUITES_H__
 
-#include <stdint.h>
+DECL_TESTSUITE(filetransfer_new_test)
+DECL_TESTSUITE(filetransfer_id_test)
+DECL_TESTSUITE(filetransfer_id_name_test)
+DECL_TESTSUITE(filetransfer_connect_test)
+DECL_TESTSUITE(filetransfer_base_test)
 
-#include "ela_filetransfer.h"
+#define DEFINE_FILETRANSFER_TESTSUITES \
+    DEFINE_TESTSUITE(filetransfer_new_test), \
+    DEFINE_TESTSUITE(filetransfer_id_test), \
+    DEFINE_TESTSUITE(filetransfer_id_name_test), \
+    DEFINE_TESTSUITE(filetransfer_connect_test), \
+    DEFINE_TESTSUITE(filetransfer_base_test)
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-typedef struct EasyFile {
-    ElaFileTransfer         *ft;
-
-    ElaFileProgressCallbacks callbacks;
-    void                    *callbacks_context;
-
-    FILE                    *fp;
-    char                    fileid[ELA_MAX_FILE_ID_LEN + 1];
-    uint64_t                filesz;
-    uint64_t                offset;
-
-    int                     sys_errno;
-    int                     carrier_errno;
-} EasyFile;
-
-void ela_set_error(int error);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* __EASYFILE_H__ */
+#endif /* __API_FILETRANSFER_TEST_SUITES_H__ */
